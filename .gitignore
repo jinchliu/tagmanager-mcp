@@ -1,0 +1,8 @@
+.DS_Store
+__pycache__/
+*.egg-info/
+.venv/
+.nox/
+dist/
+build/
+.coverage

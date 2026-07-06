@@ -1,0 +1,39 @@
+[project]
+name = "tagmanager-mcp"
+version = "0.1.0"
+description = "MCP server for the Google Tag Manager API (stdio transport)"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.28,<2",
+    "google-api-python-client>=2.100",
+    "google-auth~=2.40",
+    "google-auth-httplib2>=0.2.0",
+    # cryptography 49+ ships no Intel-macOS wheels; keep it installable
+    # on x86_64 Macs without a Rust toolchain.
+    "cryptography<49",
+]
+
+[project.scripts]
+tagmanager-mcp = "tagmanager_mcp.server:run_server"
+
+[project.optional-dependencies]
+dev = [
+    "mcp[cli]>=1.28,<2",
+    "black",
+    "nox",
+]
+
+[build-system]
+requires = ["setuptools>=82.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["tagmanager_mcp*"]
+
+[tool.black]
+line-length = 80
+skip-string-normalization = true
+target-version = ['py310', 'py311', 'py312', 'py313']
