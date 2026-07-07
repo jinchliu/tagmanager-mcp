@@ -25,6 +25,7 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import set_user_agent
 
 READ_ONLY_SCOPE = 'https://www.googleapis.com/auth/tagmanager.readonly'
+EDIT_SCOPE = 'https://www.googleapis.com/auth/tagmanager.edit.containers'
 
 _HTTP_TIMEOUT_SECONDS = 30
 # Worst-case backoff ~61s: rides out most of the 100s quota window
@@ -43,7 +44,7 @@ _RETRYABLE_REASONS = frozenset(
 _LOGIN_COMMAND = (
     'gcloud auth application-default login'
     ' --scopes=https://www.googleapis.com/auth/tagmanager.readonly,'
-    'https://www.googleapis.com/auth/analytics.readonly,'
+    'https://www.googleapis.com/auth/tagmanager.edit.containers,'
     'https://www.googleapis.com/auth/cloud-platform'
 )
 _ADC_SETUP_HINT = (
@@ -97,7 +98,7 @@ def _get_credentials() -> Any:
             try:
                 with prevent_stdio_inheritance():
                     _credentials, _ = google.auth.default(
-                        scopes=[READ_ONLY_SCOPE]
+                        scopes=[READ_ONLY_SCOPE, EDIT_SCOPE]
                     )
             except google.auth.exceptions.DefaultCredentialsError as error:
                 raise RuntimeError(
@@ -145,9 +146,16 @@ def _error_reasons(error: HttpError) -> set[str]:
     return reasons
 
 
-def _should_retry(status: int, reasons: set[str]) -> bool:
-    if status == 429 or status >= 500:
+def _should_retry(
+    status: int, reasons: set[str], mutating: bool = False
+) -> bool:
+    if status == 429:
         return True
+    if status >= 500:
+        # A 5xx is ambiguous for writes: the server may have applied
+        # the change before failing, and the API has no idempotency
+        # key, so retrying could duplicate it. Reads retry freely.
+        return not mutating
     return status == 403 and bool(reasons & _RETRYABLE_REASONS)
 
 
@@ -170,6 +178,19 @@ def _actionable_message(
             'The Tag Manager API is not enabled on the quota project.'
             ' Run: gcloud services enable tagmanager.googleapis.com'
             ' --project=YOUR_PROJECT'
+        )
+    # Fingerprint-mismatch error code is undocumented; observed
+    # candidates are 400 and 412, so both shapes route here.
+    if status == 412 or (status == 400 and 'fingerprint' in str(error).lower()):
+        return (
+            'The entity changed on the server between read and write'
+            ' (fingerprint mismatch). Retry the operation; it re-reads'
+            ' the current state automatically.'
+        )
+    if status == 400:
+        return (
+            f'Invalid request (HTTP 400): {error}. Check the entity'
+            ' body against the Tag Manager API v2 reference.'
         )
     if status == 404:
         return (
@@ -214,11 +235,13 @@ def _respect_throttle() -> None:
         _last_request_at = time.monotonic()
 
 
-def execute(request: Any) -> dict[str, Any]:
+def execute(request: Any, mutating: bool = False) -> dict[str, Any]:
     """Executes a googleapiclient request with retry and throttling.
 
     Raises RuntimeError with an actionable message instead of leaking a
-    raw HttpError to the model.
+    raw HttpError to the model. With mutating=True only rate-limit
+    rejections (raised before the request is processed) are retried;
+    ambiguous 5xx errors fail fast to avoid duplicating a write.
     """
     for attempt in range(_MAX_RETRIES + 1):
         _respect_throttle()
@@ -237,7 +260,7 @@ def execute(request: Any) -> dict[str, Any]:
         except HttpError as error:
             status = error.resp.status if error.resp else 0
             reasons = _error_reasons(error)
-            if not _should_retry(status, reasons):
+            if not _should_retry(status, reasons, mutating):
                 raise RuntimeError(
                     _actionable_message(status, reasons, error)
                 ) from error

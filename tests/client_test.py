@@ -36,6 +36,18 @@ class ShouldRetryTest(unittest.TestCase):
         self.assertTrue(client._should_retry(500, set()))
         self.assertTrue(client._should_retry(503, set()))
 
+    def test_mutating_5xx_does_not_retry(self) -> None:
+        # A 5xx may have been raised after the write was applied;
+        # retrying could duplicate the entity.
+        self.assertFalse(client._should_retry(500, set(), mutating=True))
+        self.assertFalse(client._should_retry(503, set(), mutating=True))
+
+    def test_mutating_rate_limits_still_retry(self) -> None:
+        self.assertTrue(client._should_retry(429, set(), mutating=True))
+        self.assertTrue(
+            client._should_retry(403, {'rateLimitExceeded'}, mutating=True)
+        )
+
 
 class ErrorReasonsTest(unittest.TestCase):
     def test_collects_legacy_and_v2_reasons(self) -> None:
@@ -100,6 +112,26 @@ class ActionableMessageTest(unittest.TestCase):
         message = client._actionable_message(404, {'NOT_FOUND'}, error)
         self.assertIn('list_', message)
 
+    def test_412_maps_to_fingerprint_mismatch(self) -> None:
+        error = _http_error(412, {'status': 'FAILED_PRECONDITION'})
+        message = client._actionable_message(412, set(), error)
+        self.assertIn('fingerprint', message)
+
+    def test_400_mentioning_fingerprint_maps_to_mismatch(self) -> None:
+        error = _http_error(
+            400, {'message': 'Fingerprint does not match current value.'}
+        )
+        message = client._actionable_message(400, set(), error)
+        self.assertIn('fingerprint mismatch', message)
+
+    def test_other_400_surfaces_api_error(self) -> None:
+        error = _http_error(
+            400, {'message': 'Invalid value for field tag.name'}
+        )
+        message = client._actionable_message(400, set(), error)
+        self.assertIn('Invalid request', message)
+        self.assertIn('tag.name', message)
+
 
 class ExecuteTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -131,6 +163,24 @@ class ExecuteTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, '25 requests'):
                 client.execute(request)
         self.assertEqual(request.execute.call_count, client._MAX_RETRIES + 1)
+
+    def test_mutating_5xx_fails_fast(self) -> None:
+        request = mock.Mock()
+        request.execute.side_effect = _http_error(500, {'status': 'INTERNAL'})
+        with mock.patch.object(client.time, 'sleep'):
+            with self.assertRaises(RuntimeError):
+                client.execute(request, mutating=True)
+        self.assertEqual(request.execute.call_count, 1)
+
+    def test_mutating_retries_rate_limit(self) -> None:
+        rate_limited = _http_error(429, {'status': 'RESOURCE_EXHAUSTED'})
+        request = mock.Mock()
+        request.execute.side_effect = [rate_limited, {'ok': True}]
+        with mock.patch.object(client.time, 'sleep'):
+            self.assertEqual(
+                client.execute(request, mutating=True), {'ok': True}
+            )
+        self.assertEqual(request.execute.call_count, 2)
 
     def test_refresh_error_maps_to_login_hint(self) -> None:
         request = mock.Mock()

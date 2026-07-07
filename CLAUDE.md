@@ -1,7 +1,8 @@
 # tagmanager-mcp
 
 Python 实现的 Google Tag Manager MCP server（stdio 传输，官方 `mcp` SDK 的 FastMCP）。
-v0.1（只读）已交付并验收：10 个只读工具、38 个离线测试、已接入 Claude Code（server key: `gtm`）。
+v0.1（只读）已交付并验收；v0.2（写操作）已交付：共 19 个工具（10 读 + 9 写）、58 个离线测试、
+真实容器 CRUD 冒烟通过、已接入 Claude Code（server key: `gtm`）。
 
 ## 常用命令
 
@@ -24,10 +25,12 @@ tagmanager_mcp/
 └── tools/
     ├── client.py    # ADC 凭据单例（threading.Lock 懒加载）+ 每次调用新建 discovery client；
     │                # execute()：所有 API 调用的必经层 —— 429/配额 403/5xx 指数退避重试、
-    │                # 首触限流后 4 秒节流、HttpError → 可执行错误消息；prevent_stdio_inheritance()
-    ├── utils.py     # construct_*_path()（宽容解析 int/数字串/完整 path）、slim_*()、paginate()
+    │                # 首触限流后 4 秒节流、HttpError → 可执行错误消息；写请求传
+    │                # mutating=True（只重试限流、不重试 5xx）；prevent_stdio_inheritance()
+    ├── utils.py     # construct_*_path()（宽容解析 int/数字串/完整 path）、slim_*()、
+    │                # merge_patch()（顶层浅合并、null 删键）、paginate()
     ├── structure.py # list_accounts / list_containers / list_workspaces / get_workspace_status
-    ├── tags.py      # list_tags（瘦身）/ get_tag（全量）
+    ├── tags.py      # list_tags（瘦身）/ get_tag（全量）/ create / update / delete
     ├── triggers.py  # 与 tags.py 同构
     └── variables.py # 与 tags.py 同构
 ```
@@ -40,7 +43,12 @@ tagmanager_mcp/
 - `list_*` 只回骨架字段（utils 里的 slim_*），`get_*` 才给全量；GTM 的 tag JSON 极啰嗦，
   一个 GA4 event tag 全量几百行
 - 所有 list 方法必须经 `paginate()`；API 对空列表会整体省略数组键，任何响应取值都要 `.get()` 兜底
-- 每个工具声明 annotations；v0.1 全部 `ToolAnnotations(readOnlyHint=True)`
+- 每个工具声明 annotations：读 `readOnlyHint=True`、create/update `destructiveHint=False`、
+  delete `destructiveHint=True`
+- 写操作三条铁律：所有写调用走 `execute(request, mutating=True)`（只重试限流、不重试 5xx——
+  API 无幂等键，5xx 重试可能重复写入）；update 一律"get 当前 → `merge_patch` 浅合并（null 删键、
+  list 整替）→ 带 fingerprint 提交"，模型只传要改的字段；`delete_*` 必须显式 `confirm=True`，
+  不为 True 时在触 API 前直接报错
 - stdout 只属于 MCP 协议，日志/调试输出一律走 stderr
 
 ## 编码约定
@@ -59,6 +67,8 @@ tagmanager_mcp/
 - 工具返回注解必须写 `dict[str, Any]`：裸 `dict` 不会生成 structured output schema
 - 内置 trigger（ID 21474795xx，如 All Pages / Initialization / Consent Init）不出现在
   list_triggers 结果里，做 trigger 引用分析时必须考虑
+- fingerprint 失配实测（2026-07-07，测试容器）返回 **400** `badRequest`，message 为
+  "The provided entity fingerprint is not valid."（官方无文档；未观察到 412，但 412 分支保留兜底）
 
 ## 认证（ADC）
 
@@ -70,23 +80,22 @@ consent screen 发布到 production 以避免 refresh token 7 天过期）：
 gcloud services enable tagmanager.googleapis.com --project=YOUR_PROJECT
 gcloud auth application-default login \
   --client-id-file=YOUR_DESKTOP_CLIENT.json \
-  --scopes=https://www.googleapis.com/auth/tagmanager.readonly,https://www.googleapis.com/auth/analytics.readonly,https://www.googleapis.com/auth/cloud-platform
+  --scopes=https://www.googleapis.com/auth/tagmanager.readonly,https://www.googleapis.com/auth/tagmanager.edit.containers,https://www.googleapis.com/auth/cloud-platform
 gcloud auth application-default set-quota-project YOUR_PROJECT
 ```
 
-scope 里保留 `analytics.readonly` 是为了不破坏本机既有 GA 工具的 ADC。自检：
+`cloud-platform` 供 `set-quota-project` 校验用；若本机还有其他依赖这份 ADC 的 Google 工具，
+重登时要把它们的 scope 一并带上（OAuth scope 在同意时固化，重登即整体替换）。自检：
 `curl -H "Authorization: Bearer $(gcloud auth application-default print-access-token)" https://tagmanager.googleapis.com/tagmanager/v2/accounts`
 应返回 200。本机的具体 GCP 项目、OAuth client 文件、测试容器 ID 等环境信息在 Claude 的项目记忆里，
 不写进本文件（本文件将随 repo 公开）。
 
 ## 路线图（scope 分级即版本线）
 
-- **v0.2 写操作**：scope 追加 `tagmanager.edit.containers`（需重跑 ADC login）。
-  create/update/delete；update 内部"先 get 取 fingerprint 再带上 update"。已核实的 API 事实：
-  fingerprint 在 discovery doc 中是**可选**参数、失配错误码**未见官方文档**（动手前先拿测试容器实测，
-  400/412 都要兜）；delete 方法不接受 fingerprint；`workspaces.delete` 需要的是
-  `tagmanager.delete.containers` scope（不是 edit）；免费容器最多 3 个并发 workspace，
-  不要设计"每操作开临时 workspace"。`delete_*` 要求显式 `confirm=True` + `destructiveHint=True`
+- **v0.2 写操作（已交付，2026-07-07）**：scope 追加了 `tagmanager.edit.containers`。
+  9 个写工具落地，设计细节见上文"写操作三条铁律"。遗留的 API 事实：delete 方法不接受
+  fingerprint；`workspaces.delete` 需要的是 `tagmanager.delete.containers` scope（不是 edit，
+  故 v0.2 未做 workspace 管理）；免费容器最多 3 个并发 workspace，不要设计"每操作开临时 workspace"
 - **v0.3 发布**：scope 再追加 `tagmanager.edit.containerversions` + `tagmanager.publish`
   （publish 只认后者）。versions.py 独立文件（架构上强调 workspace 编辑 ≠ 上线）；
   `create_version` 会**销毁 workspace** 并返回 newWorkspacePath（必须回传给模型）；

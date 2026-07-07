@@ -110,6 +110,47 @@ class ExtractIdEdgeCaseTest(unittest.TestCase):
             utils.construct_account_path(-5)
 
 
+class MergePatchTest(unittest.TestCase):
+    def test_replaces_and_adds_fields(self) -> None:
+        base = {'name': 'old', 'paused': False}
+        patch = {'name': 'new', 'notes': 'added'}
+        self.assertEqual(
+            utils.merge_patch(base, patch),
+            {'name': 'new', 'paused': False, 'notes': 'added'},
+        )
+
+    def test_null_removes_field(self) -> None:
+        self.assertEqual(
+            utils.merge_patch({'name': 'x', 'notes': 'y'}, {'notes': None}),
+            {'name': 'x'},
+        )
+
+    def test_removing_missing_key_is_noop(self) -> None:
+        self.assertEqual(
+            utils.merge_patch({'name': 'x'}, {'notes': None}), {'name': 'x'}
+        )
+
+    def test_lists_replaced_whole(self) -> None:
+        base = {'firingTriggerId': ['1', '2']}
+        patch = {'firingTriggerId': ['3']}
+        self.assertEqual(
+            utils.merge_patch(base, patch), {'firingTriggerId': ['3']}
+        )
+
+    def test_nested_dicts_not_deep_merged(self) -> None:
+        base = {'monitoringMetadata': {'type': 'map', 'map': [{'key': 'a'}]}}
+        patch = {'monitoringMetadata': {'type': 'map'}}
+        self.assertEqual(
+            utils.merge_patch(base, patch),
+            {'monitoringMetadata': {'type': 'map'}},
+        )
+
+    def test_base_not_mutated(self) -> None:
+        base = {'name': 'old'}
+        utils.merge_patch(base, {'name': 'new', 'notes': 'x'})
+        self.assertEqual(base, {'name': 'old'})
+
+
 class PaginateTest(unittest.TestCase):
     def test_aggregates_pages(self) -> None:
         pages = {

@@ -2,8 +2,10 @@
 
 An MCP (Model Context Protocol) server for the **Google Tag Manager API v2**.
 Ask your AI assistant about your GTM setup — accounts, containers, tags,
-triggers, variables, unpublished changes — from Claude Code, Claude Desktop,
-or any MCP client. Python, stdio transport, built on the official `mcp` SDK.
+triggers, variables, unpublished changes — and let it edit the workspace
+draft: create, update and delete tags, triggers and variables. Works from
+Claude Code, Claude Desktop, or any MCP client. Python, stdio transport,
+built on the official `mcp` SDK.
 
 ## Why this one?
 
@@ -27,7 +29,9 @@ or any MCP client. Python, stdio transport, built on the official `mcp` SDK.
   errors with exponential backoff, and self-throttles after the first hit.
   Errors come back as actionable messages, not raw stack traces.
 
-## Tools (v0.1 — read-only)
+## Tools
+
+**Read (v0.1)**
 
 | Tool | Purpose |
 |---|---|
@@ -39,9 +43,27 @@ or any MCP client. Python, stdio transport, built on the official `mcp` SDK.
 | `list_triggers` / `get_trigger` | Triggers — skeleton list / full configuration |
 | `list_variables` / `get_variable` | Variables — skeleton list / full configuration |
 
-Every tool declares `readOnlyHint`, and the server requests only the
-`tagmanager.readonly` OAuth scope. Write operations and publishing are
-planned as separate, opt-in scope tiers (see Roadmap).
+**Write (v0.2)**
+
+| Tool | Purpose |
+|---|---|
+| `create_tag` / `create_trigger` / `create_variable` | Create an entity in the workspace draft |
+| `update_tag` / `update_trigger` / `update_variable` | Merge partial changes into an entity |
+| `delete_tag` / `delete_trigger` / `delete_variable` | Delete an entity (requires `confirm=true`) |
+
+The write safety model:
+
+- **Nothing goes live.** All writes only touch the workspace draft —
+  publishing a version is a separate, not-yet-included scope tier (see
+  Roadmap). You review changes in the GTM UI before anything ships.
+- **Updates are merge patches.** The model sends only the fields to change;
+  the server re-reads the entity and submits its `fingerprint`, so a
+  concurrent edit fails cleanly instead of being clobbered.
+- **Deletes need explicit confirmation** (`confirm=true`) and are declared
+  with `destructiveHint`.
+- **No blind retries on writes.** Rate-limit rejections are retried (they
+  happen before execution); ambiguous 5xx errors are not, so a create can
+  never be silently duplicated.
 
 ## Prerequisites
 
@@ -82,9 +104,13 @@ Google blocks gcloud's built-in OAuth client for Tag Manager scopes
 ```bash
 gcloud auth application-default login \
   --client-id-file=path/to/your-client.json \
-  --scopes=https://www.googleapis.com/auth/tagmanager.readonly
+  --scopes=https://www.googleapis.com/auth/tagmanager.readonly,https://www.googleapis.com/auth/tagmanager.edit.containers,https://www.googleapis.com/auth/cloud-platform
 gcloud auth application-default set-quota-project YOUR_PROJECT
 ```
+
+Drop `tagmanager.edit.containers` from the list if you want a read-only
+setup; the write tools will then fail with a clear re-login hint while
+everything else keeps working.
 
 The browser will warn "Google hasn't verified this app" — it is your own
 app; choose Advanced → Continue.
@@ -128,6 +154,9 @@ claude mcp add gtm -- /absolute/path/to/tagmanager-mcp/.venv/bin/tagmanager-mcp
 - "Show me the full config of the purchase tag and which triggers fire it."
 - "Does the current workspace have unpublished changes? What changed?"
 - "Find triggers that no tag references."
+- "Pause every tag that fires on the checkout trigger."
+- "Create a custom-event trigger for `sign_up` and a GA4 event tag that
+  fires on it."
 
 ## Quota
 
@@ -156,9 +185,9 @@ avoid "every tag in every container" sweeps across many containers at once.
 
 ## Roadmap
 
-- **v0.1** (current): read-only audit — `tagmanager.readonly`
-- **v0.2**: create/update/delete for tags, triggers, variables, gated behind
-  explicit `confirm=true` arguments — adds `tagmanager.edit.containers`
+- **v0.1**: read-only audit — `tagmanager.readonly`
+- **v0.2** (current): create/update/delete for tags, triggers and variables
+  in the workspace draft — adds `tagmanager.edit.containers`
 - **v0.3**: version creation and publishing, kept architecturally separate
   from workspace editing — adds `tagmanager.edit.containerversions` and
   `tagmanager.publish`

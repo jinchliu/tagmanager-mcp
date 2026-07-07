@@ -100,6 +100,22 @@ def slim_variable(variable: dict[str, Any]) -> dict[str, Any]:
     return _slim(variable, _VARIABLE_SKELETON_FIELDS)
 
 
+def merge_patch(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    """Applies a shallow RFC-7386-style merge patch, returning a copy.
+
+    Each top-level key in patch replaces the value in base; a None
+    value removes the key. Lists are replaced whole and nested dicts
+    are not merged recursively.
+    """
+    merged = dict(base)
+    for key, value in patch.items():
+        if value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    return merged
+
+
 def paginate(
     make_request: Callable[[str | None], Any], items_key: str
 ) -> list[dict[str, Any]]:

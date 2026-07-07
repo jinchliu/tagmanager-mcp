@@ -5,7 +5,7 @@ import unittest
 
 from tagmanager_mcp import server
 
-_EXPECTED_TOOLS = {
+_READ_ONLY_TOOLS = {
     'list_accounts',
     'list_containers',
     'list_workspaces',
@@ -17,20 +17,53 @@ _EXPECTED_TOOLS = {
     'list_variables',
     'get_variable',
 }
+_WRITE_TOOLS = {
+    'create_tag',
+    'update_tag',
+    'create_trigger',
+    'update_trigger',
+    'create_variable',
+    'update_variable',
+}
+_DESTRUCTIVE_TOOLS = {
+    'delete_tag',
+    'delete_trigger',
+    'delete_variable',
+}
 
 
 class ToolRegistrationTest(unittest.TestCase):
-    def test_all_read_only_tools_registered(self) -> None:
+    def test_all_tools_registered(self) -> None:
         tools = asyncio.run(server.mcp.list_tools())
-        self.assertEqual({tool.name for tool in tools}, _EXPECTED_TOOLS)
+        self.assertEqual(
+            {tool.name for tool in tools},
+            _READ_ONLY_TOOLS | _WRITE_TOOLS | _DESTRUCTIVE_TOOLS,
+        )
+
+    def test_annotations_match_tool_class(self) -> None:
+        tools = asyncio.run(server.mcp.list_tools())
         for tool in tools:
-            self.assertIsNotNone(
-                tool.annotations, msg=f'{tool.name} lacks annotations'
-            )
-            self.assertTrue(
-                tool.annotations.readOnlyHint,
-                msg=f'{tool.name} must declare readOnlyHint',
-            )
+            with self.subTest(tool=tool.name):
+                self.assertIsNotNone(
+                    tool.annotations, msg=f'{tool.name} lacks annotations'
+                )
+                if tool.name in _READ_ONLY_TOOLS:
+                    self.assertTrue(tool.annotations.readOnlyHint)
+                elif tool.name in _WRITE_TOOLS:
+                    self.assertFalse(tool.annotations.readOnlyHint)
+                    self.assertFalse(tool.annotations.destructiveHint)
+                else:
+                    self.assertFalse(tool.annotations.readOnlyHint)
+                    self.assertTrue(tool.annotations.destructiveHint)
+
+    def test_delete_tools_take_confirm_flag(self) -> None:
+        tools = asyncio.run(server.mcp.list_tools())
+        for tool in tools:
+            if tool.name in _DESTRUCTIVE_TOOLS:
+                with self.subTest(tool=tool.name):
+                    self.assertIn(
+                        'confirm', tool.inputSchema.get('properties', {})
+                    )
 
 
 if __name__ == '__main__':
