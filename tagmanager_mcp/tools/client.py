@@ -26,6 +26,12 @@ from googleapiclient.http import set_user_agent
 
 READ_ONLY_SCOPE = 'https://www.googleapis.com/auth/tagmanager.readonly'
 EDIT_SCOPE = 'https://www.googleapis.com/auth/tagmanager.edit.containers'
+# v0.3: create_version needs edit.containerversions; publish needs the
+# dedicated publish scope (it accepts no other).
+EDIT_VERSIONS_SCOPE = (
+    'https://www.googleapis.com/auth/tagmanager.edit.containerversions'
+)
+PUBLISH_SCOPE = 'https://www.googleapis.com/auth/tagmanager.publish'
 
 _HTTP_TIMEOUT_SECONDS = 30
 # Worst-case backoff ~61s: rides out most of the 100s quota window
@@ -45,6 +51,8 @@ _LOGIN_COMMAND = (
     'gcloud auth application-default login'
     ' --scopes=https://www.googleapis.com/auth/tagmanager.readonly,'
     'https://www.googleapis.com/auth/tagmanager.edit.containers,'
+    'https://www.googleapis.com/auth/tagmanager.edit.containerversions,'
+    'https://www.googleapis.com/auth/tagmanager.publish,'
     'https://www.googleapis.com/auth/cloud-platform'
 )
 _ADC_SETUP_HINT = (
@@ -98,7 +106,12 @@ def _get_credentials() -> Any:
             try:
                 with prevent_stdio_inheritance():
                     _credentials, _ = google.auth.default(
-                        scopes=[READ_ONLY_SCOPE, EDIT_SCOPE]
+                        scopes=[
+                            READ_ONLY_SCOPE,
+                            EDIT_SCOPE,
+                            EDIT_VERSIONS_SCOPE,
+                            PUBLISH_SCOPE,
+                        ]
                     )
             except google.auth.exceptions.DefaultCredentialsError as error:
                 raise RuntimeError(

@@ -16,6 +16,24 @@ _TAG_SKELETON_FIELDS = (
 )
 _TRIGGER_SKELETON_FIELDS = ('triggerId', 'name', 'type', 'fingerprint')
 _VARIABLE_SKELETON_FIELDS = ('variableId', 'name', 'type', 'fingerprint')
+_VERSION_HEADER_SKELETON_FIELDS = (
+    'containerVersionId',
+    'name',
+    'deleted',
+    'numTags',
+    'numTriggers',
+    'numVariables',
+)
+# Kept whole on a container version; its tags/triggers/variables arrays
+# are slimmed separately so the response stays readable.
+_VERSION_META_FIELDS = (
+    'containerVersionId',
+    'name',
+    'description',
+    'notes',
+    'fingerprint',
+    'deleted',
+)
 
 
 def _extract_id(value: int | str, segment: str) -> str:
@@ -81,6 +99,21 @@ def construct_entity_path(
     return f'{workspace_path}/{kind}/{_extract_id(entity_id, kind)}'
 
 
+def construct_version_path(
+    account_id: int | str,
+    container_id: int | str,
+    version_id: int | str,
+) -> str:
+    """Returns 'accounts/{a}/containers/{c}/versions/{v}'.
+
+    Container versions live under the container, not a workspace, so
+    construct_entity_path does not apply.
+    """
+    version = _extract_id(version_id, 'versions')
+    container_path = construct_container_path(account_id, container_id)
+    return f'{container_path}/versions/{version}'
+
+
 def _slim(entity: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
     return {key: entity[key] for key in fields if key in entity}
 
@@ -98,6 +131,30 @@ def slim_trigger(trigger: dict[str, Any]) -> dict[str, Any]:
 def slim_variable(variable: dict[str, Any]) -> dict[str, Any]:
     """Keeps skeleton fields only; get_variable returns the full config."""
     return _slim(variable, _VARIABLE_SKELETON_FIELDS)
+
+
+def slim_version_header(header: dict[str, Any]) -> dict[str, Any]:
+    """Keeps skeleton fields of a ContainerVersionHeader (list_versions)."""
+    return _slim(header, _VERSION_HEADER_SKELETON_FIELDS)
+
+
+def slim_container_version(version: dict[str, Any]) -> dict[str, Any]:
+    """Slims a full ContainerVersion for get/live/create/publish output.
+
+    A container version embeds the full config of every tag, trigger and
+    variable, which can run to thousands of lines. Version-level metadata
+    is kept, while each embedded entity array is reduced to its skeleton
+    (name + id) via the slim_* helpers.
+    """
+    slimmed = _slim(version, _VERSION_META_FIELDS)
+    for key, slim in (
+        ('tag', slim_tag),
+        ('trigger', slim_trigger),
+        ('variable', slim_variable),
+    ):
+        if key in version:
+            slimmed[key] = [slim(entity) for entity in version[key]]
+    return slimmed
 
 
 def merge_patch(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:

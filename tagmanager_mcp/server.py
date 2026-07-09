@@ -10,6 +10,7 @@ from tagmanager_mcp.tools import structure  # noqa: F401
 from tagmanager_mcp.tools import tags  # noqa: F401
 from tagmanager_mcp.tools import triggers  # noqa: F401
 from tagmanager_mcp.tools import variables  # noqa: F401
+from tagmanager_mcp.tools import versions  # noqa: F401
 
 
 def run_server() -> None:

@@ -16,6 +16,9 @@ _READ_ONLY_TOOLS = {
     'get_trigger',
     'list_variables',
     'get_variable',
+    'list_versions',
+    'get_version',
+    'get_live_version',
 }
 _WRITE_TOOLS = {
     'create_tag',
@@ -29,6 +32,17 @@ _DESTRUCTIVE_TOOLS = {
     'delete_tag',
     'delete_trigger',
     'delete_variable',
+    'create_version',
+    'publish_version',
+}
+# Destructive tools that gate on an explicit confirm flag. create_version
+# is destructive (it consumes the workspace) but intentionally does not
+# require confirm; only publish_version and the delete_* tools do.
+_CONFIRM_TOOLS = {
+    'delete_tag',
+    'delete_trigger',
+    'delete_variable',
+    'publish_version',
 }
 
 
@@ -56,10 +70,10 @@ class ToolRegistrationTest(unittest.TestCase):
                     self.assertFalse(tool.annotations.readOnlyHint)
                     self.assertTrue(tool.annotations.destructiveHint)
 
-    def test_delete_tools_take_confirm_flag(self) -> None:
+    def test_confirm_tools_take_confirm_flag(self) -> None:
         tools = asyncio.run(server.mcp.list_tools())
         for tool in tools:
-            if tool.name in _DESTRUCTIVE_TOOLS:
+            if tool.name in _CONFIRM_TOOLS:
                 with self.subTest(tool=tool.name):
                     self.assertIn(
                         'confirm', tool.inputSchema.get('properties', {})

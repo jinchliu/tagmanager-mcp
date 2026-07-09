@@ -47,6 +47,16 @@ class ConstructPathTest(unittest.TestCase):
             'accounts/1/containers/2/workspaces/3/tags/7',
         )
 
+    def test_version_path(self) -> None:
+        self.assertEqual(
+            utils.construct_version_path(1, 2, 9),
+            'accounts/1/containers/2/versions/9',
+        )
+
+    def test_version_path_from_full_path(self) -> None:
+        full = 'accounts/1/containers/2/versions/9'
+        self.assertEqual(utils.construct_version_path(1, 2, full), full)
+
     def test_rejects_non_numeric(self) -> None:
         with self.assertRaises(ValueError):
             utils.construct_account_path('abc')
@@ -93,6 +103,63 @@ class SlimTest(unittest.TestCase):
     def test_slim_tolerates_missing_fields(self) -> None:
         self.assertEqual(utils.slim_trigger({}), {})
         self.assertEqual(utils.slim_variable({'name': 'v'}), {'name': 'v'})
+
+    def test_slim_version_header_keeps_skeleton(self) -> None:
+        header = {
+            'containerVersionId': '9',
+            'name': 'v9',
+            'numTags': 4,
+            'numTriggers': 2,
+            'numVariables': 1,
+            'path': 'accounts/1/containers/2/versions/9',
+            'accountId': '1',
+        }
+        self.assertEqual(
+            utils.slim_version_header(header),
+            {
+                'containerVersionId': '9',
+                'name': 'v9',
+                'numTags': 4,
+                'numTriggers': 2,
+                'numVariables': 1,
+            },
+        )
+
+    def test_slim_container_version_slims_embedded_entities(self) -> None:
+        version = {
+            'containerVersionId': '9',
+            'name': 'v9',
+            'fingerprint': 'fp',
+            'tag': [
+                {
+                    'tagId': '1',
+                    'name': 't',
+                    'type': 'html',
+                    'parameter': [{'key': 'html', 'value': '<x>'}],
+                }
+            ],
+            'trigger': [{'triggerId': '5', 'name': 'tr', 'type': 'pageview'}],
+            'variable': [{'variableId': '3', 'name': 'v', 'type': 'c'}],
+        }
+        self.assertEqual(
+            utils.slim_container_version(version),
+            {
+                'containerVersionId': '9',
+                'name': 'v9',
+                'fingerprint': 'fp',
+                'tag': [{'tagId': '1', 'name': 't', 'type': 'html'}],
+                'trigger': [
+                    {'triggerId': '5', 'name': 'tr', 'type': 'pageview'}
+                ],
+                'variable': [{'variableId': '3', 'name': 'v', 'type': 'c'}],
+            },
+        )
+
+    def test_slim_container_version_tolerates_no_entities(self) -> None:
+        self.assertEqual(
+            utils.slim_container_version({'containerVersionId': '9'}),
+            {'containerVersionId': '9'},
+        )
 
 
 class ExtractIdEdgeCaseTest(unittest.TestCase):

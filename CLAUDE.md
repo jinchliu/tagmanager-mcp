@@ -1,8 +1,10 @@
 # tagmanager-mcp
 
 Python 实现的 Google Tag Manager MCP server（stdio 传输，官方 `mcp` SDK 的 FastMCP）。
-v0.1（只读）已交付并验收；v0.2（写操作）已交付：共 19 个工具（10 读 + 9 写）、58 个离线测试、
-真实容器 CRUD 冒烟通过、已接入 Claude Code（server key: `gtm`）。
+v0.1（只读）、v0.2（写操作）、v0.3（版本与发布）均已交付并真机验收：v0.3 的 5 个工具
+（list/get/get_live_version + create_version/publish_version）2026-07-09 在测试容器全链冒烟通过
+（create_version 销毁 workspace→新建、publish 上线、get_live 复核）。共 24 个工具（13 读 + 11 写）、
+71 个离线测试、已接入 Claude Code（server key: `gtm`；改代码后需重启 Claude Code 才加载新工具）。
 
 ## 常用命令
 
@@ -32,7 +34,10 @@ tagmanager_mcp/
     ├── structure.py # list_accounts / list_containers / list_workspaces / get_workspace_status
     ├── tags.py      # list_tags（瘦身）/ get_tag（全量）/ create / update / delete
     ├── triggers.py  # 与 tags.py 同构
-    └── variables.py # 与 tags.py 同构
+    ├── variables.py # 与 tags.py 同构
+    └── versions.py  # container version 读（list/get/get_live）+ create_version / publish_version；
+                     # version 是 container 作用域（不在 workspace 下）；create_version 会销毁
+                     # workspace；返回一律瘦身（内嵌实体过 slim_*），非全量嵌套
 ```
 
 改代码必须遵守的规则：
@@ -44,11 +49,12 @@ tagmanager_mcp/
   一个 GA4 event tag 全量几百行
 - 所有 list 方法必须经 `paginate()`；API 对空列表会整体省略数组键，任何响应取值都要 `.get()` 兜底
 - 每个工具声明 annotations：读 `readOnlyHint=True`、create/update `destructiveHint=False`、
-  delete `destructiveHint=True`
+  delete `destructiveHint=True`（例外：`create_version`/`publish_version` 均 `destructiveHint=True`——
+  前者销毁 workspace、后者上线）
 - 写操作三条铁律：所有写调用走 `execute(request, mutating=True)`（只重试限流、不重试 5xx——
   API 无幂等键，5xx 重试可能重复写入）；update 一律"get 当前 → `merge_patch` 浅合并（null 删键、
-  list 整替）→ 带 fingerprint 提交"，模型只传要改的字段；`delete_*` 必须显式 `confirm=True`，
-  不为 True 时在触 API 前直接报错
+  list 整替）→ 带 fingerprint 提交"，模型只传要改的字段；`delete_*` 与 `publish_version`
+  必须显式 `confirm=True`，不为 True 时在触 API 前直接报错
 - stdout 只属于 MCP 协议，日志/调试输出一律走 stderr
 
 ## 编码约定
@@ -69,6 +75,19 @@ tagmanager_mcp/
   list_triggers 结果里，做 trigger 引用分析时必须考虑
 - fingerprint 失配实测（2026-07-07，测试容器）返回 **400** `badRequest`，message 为
   "The provided entity fingerprint is not valid."（官方无文档；未观察到 412，但 412 分支保留兜底）
+- v0.3 discovery 事实（2026-07-08 对 live discovery doc 实测确认）：方法名是 **snake_case**——
+  `workspaces.create_version`、`versions.set_latest`；集合名 `version_headers`（非 versionHeaders）；
+  version_headers.list 响应数组键 `containerVersionHeader`。离线 mock 测不出方法名拼错，但**不必靠
+  真机写操作兜底**：discovery client 的方法是从 discovery doc 动态生成的，`hasattr(ws(), 'create_version')`
+  即可零调用、零变更地验证名字与签名（实测 create_version 收 `path`/`body`，publish 收 `path`/`fingerprint`）
+- v0.3 scope 实测：`create_version` 需 `edit.containerversions`（**不是** edit.containers；reference 页
+  与 discovery doc 摘要冲突，以 reference 页为准）；`publish` 单认 `tagmanager.publish`。但
+  `versions.get` / `versions.live` / `version_headers.list` **只需 readonly**——`get_live_version`
+  实测用旧 scope（readonly+edit.containers）即可跑通
+- container version 的 JSON 极其庞大：测试容器 211 tags 的 version 全量 **688KB**（约 17 万 token，
+  直接撑爆上下文），故 `get_version`/`get_live_version` 有意**偏离**「get_* 返回全量」惯例，把内嵌
+  tag/trigger/variable 过 `slim_*`（实测压到 75KB，9.1x）。version header 的 numTags 等计数回的是
+  **字符串**不是 int；零值字段（如空版本的 numTags）整个省略，故 `_slim` 必须 `if key in entity`
 
 ## 认证（ADC）
 
@@ -80,7 +99,7 @@ consent screen 发布到 production 以避免 refresh token 7 天过期）：
 gcloud services enable tagmanager.googleapis.com --project=YOUR_PROJECT
 gcloud auth application-default login \
   --client-id-file=YOUR_DESKTOP_CLIENT.json \
-  --scopes=https://www.googleapis.com/auth/tagmanager.readonly,https://www.googleapis.com/auth/tagmanager.edit.containers,https://www.googleapis.com/auth/cloud-platform
+  --scopes=https://www.googleapis.com/auth/tagmanager.readonly,https://www.googleapis.com/auth/tagmanager.edit.containers,https://www.googleapis.com/auth/tagmanager.edit.containerversions,https://www.googleapis.com/auth/tagmanager.publish,https://www.googleapis.com/auth/cloud-platform
 gcloud auth application-default set-quota-project YOUR_PROJECT
 ```
 
@@ -96,15 +115,13 @@ gcloud auth application-default set-quota-project YOUR_PROJECT
   9 个写工具落地，设计细节见上文"写操作三条铁律"。遗留的 API 事实：delete 方法不接受
   fingerprint；`workspaces.delete` 需要的是 `tagmanager.delete.containers` scope（不是 edit，
   故 v0.2 未做 workspace 管理）；免费容器最多 3 个并发 workspace，不要设计"每操作开临时 workspace"
-- **v0.3 发布**：scope 再追加 `tagmanager.edit.containerversions` + `tagmanager.publish`
-  （publish 只认后者）。versions.py 独立文件（架构上强调 workspace 编辑 ≠ 上线）；
-  `create_version` 会**销毁 workspace** 并返回 newWorkspacePath（必须回传给模型）；
-  publish 前检查 syncStatus 与 compilerError；`publish_version` 同样要求 `confirm=True`
-
-## 已知问题（搁置）
-
-- Windows + v2rayN 代理环境的 stdio 连接问题：`prevent_stdio_inheritance()` 已落位（防句柄死锁）；
-  出站代理需在 MCP 配置 env 块传 `HTTPS_PROXY`（httplib2 读取，可能还需 pysocks）。待 Windows 实机验证
+- **v0.3 版本与发布（已交付，2026-07-09 真机全链验收）**：scope 追加了
+  `tagmanager.edit.containerversions` + `tagmanager.publish`（publish 只认后者）。versions.py
+  独立文件（架构上强调 workspace 编辑 ≠ 上线）；5 个工具：`list_versions` / `get_version` /
+  `get_live_version`（读）+ `create_version` / `publish_version`（写）。`create_version` 会**销毁
+  workspace** 并返回 newWorkspacePath（已回传给模型，destructiveHint=True 但不强制 confirm）；
+  `create_version` 的响应把 compilerError/syncStatus 顶到顶层供发布前检查；`publish_version` 要求
+  `confirm=True`。版本管理（update/delete/undelete/set_latest_version）本版本未做，留后续
 
 ## 命名与参考（已定，勿改）
 

@@ -51,16 +51,27 @@ built on the official `mcp` SDK.
 | `update_tag` / `update_trigger` / `update_variable` | Merge partial changes into an entity |
 | `delete_tag` / `delete_trigger` / `delete_variable` | Delete an entity (requires `confirm=true`) |
 
+**Publish (v0.3)**
+
+| Tool | Purpose |
+|---|---|
+| `list_versions` | Container version headers — skeleton list |
+| `get_version` / `get_live_version` | One version / the currently live version, with slimmed contents |
+| `create_version` | Snapshot the workspace into a version (consumes the workspace; returns `newWorkspacePath`) |
+| `publish_version` | Publish a version live (requires `confirm=true`) |
+
 The write safety model:
 
-- **Nothing goes live.** All writes only touch the workspace draft —
-  publishing a version is a separate, not-yet-included scope tier (see
-  Roadmap). You review changes in the GTM UI before anything ships.
+- **Editing and going live are separate.** Create/update/delete only touch
+  the workspace draft; only `publish_version` changes what runs on the live
+  site, and it needs `confirm=true`. You review changes in the GTM UI (or via
+  `get_workspace_status` / `get_live_version`) before anything ships.
 - **Updates are merge patches.** The model sends only the fields to change;
   the server re-reads the entity and submits its `fingerprint`, so a
   concurrent edit fails cleanly instead of being clobbered.
-- **Deletes need explicit confirmation** (`confirm=true`) and are declared
-  with `destructiveHint`.
+- **Deletes and publishing need explicit confirmation** (`confirm=true`) and
+  are declared with `destructiveHint`. `create_version` is also destructive
+  (it consumes the workspace) but does not gate on `confirm`.
 - **No blind retries on writes.** Rate-limit rejections are retried (they
   happen before execution); ambiguous 5xx errors are not, so a create can
   never be silently duplicated.
@@ -104,13 +115,15 @@ Google blocks gcloud's built-in OAuth client for Tag Manager scopes
 ```bash
 gcloud auth application-default login \
   --client-id-file=path/to/your-client.json \
-  --scopes=https://www.googleapis.com/auth/tagmanager.readonly,https://www.googleapis.com/auth/tagmanager.edit.containers,https://www.googleapis.com/auth/cloud-platform
+  --scopes=https://www.googleapis.com/auth/tagmanager.readonly,https://www.googleapis.com/auth/tagmanager.edit.containers,https://www.googleapis.com/auth/tagmanager.edit.containerversions,https://www.googleapis.com/auth/tagmanager.publish,https://www.googleapis.com/auth/cloud-platform
 gcloud auth application-default set-quota-project YOUR_PROJECT
 ```
 
-Drop `tagmanager.edit.containers` from the list if you want a read-only
-setup; the write tools will then fail with a clear re-login hint while
-everything else keeps working.
+Scopes are additive to what each tier needs: drop `tagmanager.publish` +
+`tagmanager.edit.containerversions` for edit-only (no publishing), or also
+drop `tagmanager.edit.containers` for a read-only setup. Tools outside your
+granted scopes fail with a clear re-login hint while everything else keeps
+working.
 
 The browser will warn "Google hasn't verified this app" — it is your own
 app; choose Advanced → Continue.
@@ -186,8 +199,8 @@ avoid "every tag in every container" sweeps across many containers at once.
 ## Roadmap
 
 - **v0.1**: read-only audit — `tagmanager.readonly`
-- **v0.2** (current): create/update/delete for tags, triggers and variables
-  in the workspace draft — adds `tagmanager.edit.containers`
-- **v0.3**: version creation and publishing, kept architecturally separate
-  from workspace editing — adds `tagmanager.edit.containerversions` and
-  `tagmanager.publish`
+- **v0.2**: create/update/delete for tags, triggers and variables in the
+  workspace draft — adds `tagmanager.edit.containers`
+- **v0.3** (current): version creation and publishing, kept architecturally
+  separate from workspace editing — adds `tagmanager.edit.containerversions`
+  and `tagmanager.publish`
