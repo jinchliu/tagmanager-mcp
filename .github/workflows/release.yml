@@ -1,0 +1,45 @@
+name: release
+
+# Publishes to PyPI when a v* tag is pushed, e.g. `git tag v0.3.0 && git push
+# origin v0.3.0`. Authentication uses PyPI Trusted Publishing (OIDC): the
+# publish job mints a short-lived identity token, so no API token is stored
+# anywhere. PyPI must have a (pending) publisher configured for this repo,
+# this workflow filename and the `pypi` environment below.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install --upgrade build twine
+      - run: python -m build
+      - run: twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/tagmanager-mcp
+    permissions:
+      id-token: write # required to mint the OIDC token; nothing else needs it
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
