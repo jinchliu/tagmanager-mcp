@@ -6,6 +6,18 @@ readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
+keywords = ["mcp", "google-tag-manager", "gtm", "analytics", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Site Management",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "mcp>=1.28,<2",
     "google-api-python-client>=2.100",
@@ -15,6 +27,11 @@ dependencies = [
     # on x86_64 Macs without a Rust toolchain.
     "cryptography<49",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jinchliu/tagmanager-mcp"
+Repository = "https://github.com/jinchliu/tagmanager-mcp"
+Issues = "https://github.com/jinchliu/tagmanager-mcp/issues"
 
 [project.scripts]
 tagmanager-mcp = "tagmanager_mcp.server:run_server"

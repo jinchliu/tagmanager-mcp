@@ -88,7 +88,7 @@ The write safety model:
 **1. Install**
 
 ```bash
-git clone https://github.com/<you>/tagmanager-mcp && cd tagmanager-mcp
+git clone https://github.com/jinchliu/tagmanager-mcp && cd tagmanager-mcp
 python3 -m venv .venv
 .venv/bin/pip install -e .
 ```

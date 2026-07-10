@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/python *)",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(.venv/bin/black *)",
+      "Bash(.venv/bin/nox *)",
+      "Bash(claude mcp *)"
+    ]
+  }
+}
