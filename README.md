@@ -31,7 +31,7 @@ MCP client.
 
 ## Tools
 
-**Read (v0.1)**
+**Read**
 
 | Tool | Purpose |
 |---|---|
@@ -43,7 +43,7 @@ MCP client.
 | `list_triggers` / `get_trigger` | Triggers — skeleton list / full configuration |
 | `list_variables` / `get_variable` | Variables — skeleton list / full configuration |
 
-**Write (v0.2)**
+**Write**
 
 | Tool | Purpose |
 |---|---|
@@ -51,7 +51,7 @@ MCP client.
 | `update_tag` / `update_trigger` / `update_variable` | Merge partial changes into an entity |
 | `delete_tag` / `delete_trigger` / `delete_variable` | Delete an entity (requires `confirm=true`) |
 
-**Publish (v0.3)**
+**Publish**
 
 | Tool | Purpose |
 |---|---|
@@ -79,6 +79,7 @@ The write safety model:
 ## Prerequisites
 
 - Python >= 3.10
+- [pipx](https://pipx.pypa.io/stable/installation/)
 - The [gcloud CLI](https://cloud.google.com/sdk/docs/install)
 - A Google account with access to your GTM containers
 - Any GCP project you can enable an API on (used only for quota attribution)
@@ -88,18 +89,16 @@ The write safety model:
 **1. Install**
 
 ```bash
-git clone https://github.com/jinchliu/tagmanager-mcp && cd tagmanager-mcp
-python3 -m venv .venv
-.venv/bin/pip install -e .
+pipx install tagmanager-mcp
 ```
 
-**2. Enable the Tag Manager API** on your quota project:
+**2. Enable the Tag Manager API** on your quota project
 
 ```bash
 gcloud services enable tagmanager.googleapis.com --project=YOUR_PROJECT
 ```
 
-**3. Create a Desktop OAuth client** (one-time, ~2 minutes).
+**3. Create a Desktop OAuth client**
 
 Google blocks gcloud's built-in OAuth client for Tag Manager scopes
 ("This app is blocked"), so you bring your own:
@@ -128,32 +127,24 @@ working.
 The browser will warn "Google hasn't verified this app" — it is your own
 app; choose Advanced → Continue.
 
-> **Already using ADC for other Google tools** (BigQuery, analytics-mcp,
-> ...)? Logging in replaces the ADC file, so include those scopes too, e.g.
-> `--scopes=https://www.googleapis.com/auth/tagmanager.readonly,https://www.googleapis.com/auth/analytics.readonly,https://www.googleapis.com/auth/cloud-platform`
-
-**Verify** (expect HTTP 200 and your accounts):
-
-```bash
-curl -sS -H "Authorization: Bearer $(gcloud auth application-default print-access-token)" \
-  https://tagmanager.googleapis.com/tagmanager/v2/accounts
-```
-
 ## Connect an MCP client
 
-**Claude Code**
+**Claude Code** starts from your shell and inherits its PATH, so the bare
+command works:
 
 ```bash
-claude mcp add gtm -- /absolute/path/to/tagmanager-mcp/.venv/bin/tagmanager-mcp
+claude mcp add gtm -- tagmanager-mcp
 ```
 
-**Claude Desktop** (`claude_desktop_config.json`)
+**Claude Desktop** (`claude_desktop_config.json`) is launched by the OS and
+does *not* inherit your shell PATH, so give it the absolute path. Print it
+with `which tagmanager-mcp`:
 
 ```json
 {
   "mcpServers": {
     "gtm": {
-      "command": "/absolute/path/to/tagmanager-mcp/.venv/bin/tagmanager-mcp"
+      "command": "/Users/you/.local/bin/tagmanager-mcp"
     }
   }
 }
@@ -190,17 +181,14 @@ avoid "every tag in every container" sweeps across many containers at once.
 ## Development
 
 ```bash
+git clone https://github.com/jinchliu/tagmanager-mcp && cd tagmanager-mcp
+python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
+
 .venv/bin/nox -s tests    # stdlib unittest, fully offline
 .venv/bin/nox -s lint     # black --check
 .venv/bin/mcp dev tagmanager_mcp/server.py   # MCP Inspector
 ```
 
-## Roadmap
-
-- **v0.1**: read-only audit — `tagmanager.readonly`
-- **v0.2**: create/update/delete for tags, triggers and variables in the
-  workspace draft — adds `tagmanager.edit.containers`
-- **v0.3** (current): version creation and publishing, kept architecturally
-  separate from workspace editing — adds `tagmanager.edit.containerversions`
-  and `tagmanager.publish`
+Point your MCP client at `.venv/bin/tagmanager-mcp` to run the checkout
+instead of the installed release.
