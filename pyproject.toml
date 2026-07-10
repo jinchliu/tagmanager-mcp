@@ -1,7 +1,7 @@
 [project]
 name = "tagmanager-mcp"
 version = "0.3.0"
-description = "MCP server for the Google Tag Manager API (stdio transport)"
+description = "MCP server for Google Tag Manager"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
