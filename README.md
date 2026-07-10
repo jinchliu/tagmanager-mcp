@@ -1,11 +1,11 @@
 # tagmanager-mcp
 
-An MCP (Model Context Protocol) server for the **Google Tag Manager API v2**.
+An MCP (Model Context Protocol) server for Google Tag Manager.
 Ask your AI assistant about your GTM setup — accounts, containers, tags,
 triggers, variables, unpublished changes — and let it edit the workspace
-draft: create, update and delete tags, triggers and variables. Works from
-Claude Code, Claude Desktop, or any MCP client. Python, stdio transport,
-built on the official `mcp` SDK.
+draft: create, update and delete tags, triggers and variables, then version
+and publish the container. Works from Claude Code, Claude Desktop, or any
+MCP client.
 
 ## Why this one?
 

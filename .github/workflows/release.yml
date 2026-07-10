@@ -14,7 +14,20 @@ permissions:
   contents: read
 
 jobs:
+  # Gate the release on a green tree: pushing a tag does not trigger ci.yml,
+  # so without this a failing commit could still ship to PyPI.
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -e ".[dev]"
+      - run: nox -s tests lint
+
   build:
+    needs: tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
