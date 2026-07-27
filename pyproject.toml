@@ -42,6 +42,9 @@ dev = [
     "mcp[cli]>=1.28,<2",
     "black",
     "nox",
+    # Local verification only; CI installs its own copies for the release.
+    "build",
+    "twine",
 ]
 
 [build-system]
