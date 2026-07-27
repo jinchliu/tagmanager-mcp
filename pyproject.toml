@@ -1,20 +1,21 @@
 [project]
 name = "tagmanager-mcp"
 version = "0.3.0"
-description = "MCP server for Google Tag Manager"
+description = "Google Tag Manager MCP Server"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 keywords = ["mcp", "google-tag-manager", "gtm", "analytics", "llm"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Internet :: WWW/HTTP :: Site Management",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -53,4 +54,4 @@ include = ["tagmanager_mcp*"]
 [tool.black]
 line-length = 80
 skip-string-normalization = true
-target-version = ['py310', 'py311', 'py312', 'py313']
+target-version = ['py310', 'py311', 'py312', 'py313', 'py314']
