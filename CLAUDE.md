@@ -47,7 +47,7 @@ tagmanager_mcp/
 ```
 
 ```
-.github/workflows/ci.yml       # push main / PR: nox tests (3.10–3.14 matrix) + lint (3.13)
+.github/workflows/ci.yml       # push main / PR: nox tests (3.10–3.14 matrix) + lint (3.14)
 .github/workflows/release.yml  # v* tag: tests → build → publish (OIDC)
 noxfile.py                     # venv_backend='none' — sessions run on the current interpreter
 .claude/settings.json          # project-level Bash allowlist (checked in)
@@ -80,7 +80,7 @@ Rules for changing code:
 ## Conventions
 
 - black: line-length 80, skip-string-normalization (single quotes, see pyproject)
-- Comments in English; type hints on functions; Python >= 3.10 (local venv 3.13)
+- Comments in English; type hints on functions; Python >= 3.10 (local venv 3.14)
 - Tests: stdlib unittest (not pytest), `tests/*_test.py`, fully offline
 
 ## Hard constraints (each has a real incident behind it; do not relax)
