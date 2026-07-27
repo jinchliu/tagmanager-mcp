@@ -1,90 +1,64 @@
-# tagmanager-mcp
+# Google Tag Manager MCP Server (Alpha)
 
-An MCP (Model Context Protocol) server for Google Tag Manager.
-Ask your AI assistant about your GTM setup — accounts, containers, tags,
-triggers, variables, unpublished changes — and let it edit the workspace
-draft: create, update and delete tags, triggers and variables, then version
-and publish the container. Works from Claude Code, Claude Desktop, or any
-MCP client.
+🚀 Empower your AI agents to handle the whole Google Tag Manager workflow!
 
-## Why this one?
+This repo contains the source code for running a local 
+[MCP](https://modelcontextprotocol.io/) server that interacts with APIs for 
+[Google Tag Manager](https://support.google.com/tagmanager).
 
-- **Authenticate once — no re-auth treadmill.** Auth is plain Google
-  Application Default Credentials (ADC) with your own OAuth client: the
-  refresh token does not expire, so you log in once and forget it. No hosted
-  OAuth session that lapses every few days and demands another round of
-  browser clicking.
-- **No service account required.** The server runs as *you*, using the GTM
-  permissions your Google account already has. There is no service-account
-  JSON key to create, grant container access to, rotate, or accidentally
-  commit.
-- **Local and direct.** Runs on your machine over stdio; your GTM data flows
-  straight between you and `tagmanager.googleapis.com`. No third-party proxy
-  in the middle.
-- **Built for LLM context windows.** GTM's raw tag JSON is enormous (a single
-  GA4 event tag is easily hundreds of lines). `list_*` tools return slim
-  skeletons; `get_*` tools fetch full detail only when asked.
-- **Quota-aware by design.** The GTM API allows only 25 requests per 100
-  seconds per project. The server retries rate limits (429/403) and server
-  errors with exponential backoff, and self-throttles after the first hit.
-  Errors come back as actionable messages, not raw stack traces.
+## Features
+
+- **No frequent authentication.** Standard Google ADC with your own OAuth
+  client is all you need. 
+  Everything runs on your machine, straight against the GTM API.
+- **No service account required.** The server runs as *you*, with the GTM
+  permissions your account already has.
+- **Built for LLM context windows.** A single GTM tag can be hundreds of
+  lines of JSON; `list_*` tools return slim skeletons and `get_*` fetches
+  full detail only when asked.
 
 ## Tools
 
-**Read**
+The server uses the 
+[Google Tag Manager API](https://developers.google.com/tag-platform/tag-manager/api/v2) 
+to provide Tools for use with LLMs. 
+The most frequently used tools are:
 
 | Tool | Purpose |
 |---|---|
-| `list_accounts` | GTM accounts you can access (optionally Google Tag accounts) |
-| `list_containers` | Containers in an account |
-| `list_workspaces` | Workspaces in a container |
+| `list_containers` | Containers in an account — where every session starts |
+| `list_tags` | Tags in the workspace as slim skeletons |
+| `get_tag` | One tag's full configuration, on demand |
 | `get_workspace_status` | Unpublished changes and merge conflicts |
-| `list_tags` / `get_tag` | Tags — skeleton list / full configuration |
-| `list_triggers` / `get_trigger` | Triggers — skeleton list / full configuration |
-| `list_variables` / `get_variable` | Variables — skeleton list / full configuration |
+| `create_tag` | Add a tag to the workspace draft |
+| `update_tag` | Merge partial changes into a tag (fingerprint-checked) |
+| `delete_tag` | Remove a tag (requires `confirm=true`) |
 
-**Write**
-
-| Tool | Purpose |
-|---|---|
-| `create_tag` / `create_trigger` / `create_variable` | Create an entity in the workspace draft |
-| `update_tag` / `update_trigger` / `update_variable` | Merge partial changes into an entity |
-| `delete_tag` / `delete_trigger` / `delete_variable` | Delete an entity (requires `confirm=true`) |
-
-**Publish**
-
-| Tool | Purpose |
-|---|---|
-| `list_versions` | Container version headers — skeleton list |
-| `get_version` / `get_live_version` | One version / the currently live version, with slimmed contents |
-| `create_version` | Snapshot the workspace into a version (consumes the workspace; returns `newWorkspacePath`) |
-| `publish_version` | Publish a version live (requires `confirm=true`) |
+Triggers and variables have the same four tools as tags, and versioning and
+publishing have their own. See
+[Appendix I](#appendix-i-a-full-list-of-tools) for the full list.
 
 The write safety model:
 
 - **Editing and going live are separate.** Create/update/delete only touch
-  the workspace draft; only `publish_version` changes what runs on the live
-  site, and it needs `confirm=true`. You review changes in the GTM UI (or via
-  `get_workspace_status` / `get_live_version`) before anything ships.
-- **Updates are merge patches.** The model sends only the fields to change;
-  the server re-reads the entity and submits its `fingerprint`, so a
-  concurrent edit fails cleanly instead of being clobbered.
-- **Deletes and publishing need explicit confirmation** (`confirm=true`) and
-  are declared with `destructiveHint`. `create_version` is also destructive
-  (it consumes the workspace) but does not gate on `confirm`.
-- **No blind retries on writes.** Rate-limit rejections are retried (they
-  happen before execution); ambiguous 5xx errors are not, so a create can
-  never be silently duplicated.
+  the workspace draft; only `publish_version` changes the live site.
+- **Updates are merge patches.** The model sends just the fields it changes,
+  and the server submits the entity's `fingerprint`, so a concurrent edit
+  fails cleanly instead of being clobbered.
+- **Deletes and publishing need `confirm=true`**, and every destructive tool
+  is declared with `destructiveHint`.
+- **No blind retries on writes.** Rate-limit rejections are retried,
+  ambiguous 5xx errors are not, so a create is never silently duplicated.
 
 ## Prerequisites
 
 - Python >= 3.10
-- [pipx](https://pipx.pypa.io/stable/installation/)
-- The [gcloud CLI](https://cloud.google.com/sdk/docs/install)
+- [pipx](https://pipx.pypa.io/stable/)
+- The [gcloud CLI](https://docs.cloud.google.com/sdk/gcloud)
 - A Google account with access to your GTM containers
-- Any GCP project you can enable an API on (used only for quota attribution)
+- A GCP project (used only for quota attribution)
 
-## Setup
+## Setup instructions
 
 **1. Install**
 
@@ -100,95 +74,126 @@ gcloud services enable tagmanager.googleapis.com --project=YOUR_PROJECT
 
 **3. Create a Desktop OAuth client**
 
-Google blocks gcloud's built-in OAuth client for Tag Manager scopes
-("This app is blocked"), so you bring your own:
+Check out
+[Manage OAuth Clients](https://support.google.com/cloud/answer/15549257)
+for how to create an OAuth client. Two choices matter here: pick
+application type **Desktop app**, and publish the app to **Production**,
+because an app left in Testing issues refresh tokens that expire after
+7 days. Download the client JSON at the end — step 4 needs it.
 
-- GCP Console → **Google Auth Platform → Clients → Create client** →
-  Application type **Desktop app** → create, then download the JSON.
-- On the **Audience** page, publish the app to **Production**. An app left
-  in Testing status issues refresh tokens that expire after 7 days — the
-  exact re-auth treadmill this project exists to avoid.
+Why your own client? Google may block gcloud's built-in one for Tag Manager
+scopes ("This app is blocked"), and that block is not something you can
+work around from your side.
 
 **4. Log in**
 
 ```bash
 gcloud auth application-default login \
   --client-id-file=path/to/your-client.json \
-  --scopes=https://www.googleapis.com/auth/tagmanager.readonly,https://www.googleapis.com/auth/tagmanager.edit.containers,https://www.googleapis.com/auth/tagmanager.edit.containerversions,https://www.googleapis.com/auth/tagmanager.publish,https://www.googleapis.com/auth/cloud-platform
+  --scopes=\
+https://www.googleapis.com/auth/tagmanager.readonly,\
+https://www.googleapis.com/auth/tagmanager.edit.containers,\
+https://www.googleapis.com/auth/tagmanager.edit.containerversions,\
+https://www.googleapis.com/auth/tagmanager.publish,\
+https://www.googleapis.com/auth/cloud-platform
+
 gcloud auth application-default set-quota-project YOUR_PROJECT
 ```
-
-Scopes are additive to what each tier needs: drop `tagmanager.publish` +
-`tagmanager.edit.containerversions` for edit-only (no publishing), or also
-drop `tagmanager.edit.containers` for a read-only setup. Tools outside your
-granted scopes fail with a clear re-login hint while everything else keeps
-working.
 
 The browser will warn "Google hasn't verified this app" — it is your own
 app; choose Advanced → Continue.
 
+Those scopes unlock everything. Drop the lines you do not want:
+
+| Scope | Unlocks |
+|---|---|
+| `tagmanager.readonly` | Every read tool |
+| `tagmanager.edit.containers` | Create / update / delete in a workspace |
+| `tagmanager.edit.containerversions` | `create_version` |
+| `tagmanager.publish` | `publish_version` |
+| `cloud-platform` | Nothing in GTM — needed by `set-quota-project` |
+
+Tools outside your granted scopes fail with a clear re-login hint, and
+everything else keeps working.
+
 ## Connect an MCP client
 
-**Claude Code** starts from your shell and inherits its PATH, so the bare
-command works:
+### Configure Claude Code
 
 ```bash
-claude mcp add gtm -- tagmanager-mcp
+claude mcp add --scope user tagmanager-mcp -- tagmanager-mcp
 ```
 
-**Claude Desktop** (`claude_desktop_config.json`) is launched by the OS and
-does *not* inherit your shell PATH, so give it the absolute path. Print it
-with `which tagmanager-mcp`:
+`--scope user` registers the server for every project instead of just the
+current directory. Verify with `claude mcp list`, or run `/mcp` inside a
+session.
+
+### Configure Claude Desktop
+
+Claude Desktop needs the absolute path to the executable. Print it:
+
+```bash
+which tagmanager-mcp
+```
+
+Open **Settings → Developer → Edit Config**, which reveals
+`claude_desktop_config.json`
+(`~/Library/Application Support/Claude/` on macOS,
+`%APPDATA%\Claude\` on Windows), and add the server with the path you just
+printed:
 
 ```json
 {
   "mcpServers": {
-    "gtm": {
+    "tagmanager-mcp": {
       "command": "/Users/you/.local/bin/tagmanager-mcp"
     }
   }
 }
 ```
 
+Save the file and restart Claude Desktop — it reads the config only at
+startup. The tools then appear under the tools icon in the chat box.
+
 ## Example prompts
 
 - "Which GTM accounts and containers do I have?"
-- "How many tags are in the default workspace of container GTM-XXXXXXX, grouped by type?"
-- "Which tags are paused?"
-- "Show me the full config of the purchase tag and which triggers fire it."
-- "Does the current workspace have unpublished changes? What changed?"
-- "Find triggers that no tag references."
+- "How many tags are in container GTM-XXXXXXX, grouped by type?"
+- "Show me the purchase tag's config and which triggers fire it."
+- "Does the current workspace have unpublished changes?"
 - "Pause every tag that fires on the checkout trigger."
 - "Create a custom-event trigger for `sign_up` and a GA4 event tag that
   fires on it."
 
-## Quota
+## Note on quota
 
-The GTM API is tightly limited: **10,000 requests/day** and **0.25 QPS
-(25 requests per 100-second window) per GCP project** — per-user quota
-overrides do not raise it. Ordinary audit conversations fit comfortably;
-avoid "every tag in every container" sweeps across many containers at once.
+The GTM API allows **10,000 requests/day** and **25 requests per 100
+seconds** per GCP project; per-user overrides do not raise it. Ordinary
+audit conversations fit comfortably — just avoid sweeping every tag across
+many containers at once.
 
-## Troubleshooting
+## Appendix I: A Full List of Tools
 
-- **"This app is blocked" during login** — you used gcloud's default OAuth
-  client; pass your own with `--client-id-file` (Setup step 3).
-- **403 mentioning insufficient scopes** — your ADC predates this setup;
-  re-run the login command in Setup step 4.
-- **Errors mention enabling the API / quota project** — run Setup step 2 and
-  `set-quota-project`; the error message itself carries the exact commands.
+**Read**
 
-## Development
+| Tool | Purpose |
+|---|---|
+| `list_accounts` | GTM accounts you can access (optionally Google Tag accounts) |
+| `list_containers` | Containers in an account |
+| `list_workspaces` | Workspaces in a container |
+| `get_workspace_status` | Unpublished changes and merge conflicts |
+| `list_tags` / `get_tag` | Tags — skeleton list / full configuration |
+| `list_triggers` / `get_trigger` | Triggers — skeleton list / full configuration |
+| `list_variables` / `get_variable` | Variables — skeleton list / full configuration |
+| `list_versions` | Container version headers — skeleton list |
+| `get_version` / `get_live_version` | One version / the currently live version, with slimmed contents |
 
-```bash
-git clone https://github.com/jinchliu/tagmanager-mcp && cd tagmanager-mcp
-python3 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
+**Write**
 
-.venv/bin/nox -s tests    # stdlib unittest, fully offline
-.venv/bin/nox -s lint     # black --check
-.venv/bin/mcp dev tagmanager_mcp/server.py   # MCP Inspector
-```
-
-Point your MCP client at `.venv/bin/tagmanager-mcp` to run the checkout
-instead of the installed release.
+| Tool | Purpose |
+|---|---|
+| `create_tag` / `create_trigger` / `create_variable` | Create an entity in the workspace draft |
+| `update_tag` / `update_trigger` / `update_variable` | Merge partial changes into an entity |
+| `delete_tag` / `delete_trigger` / `delete_variable` | Delete an entity (requires `confirm=true`) |
+| `create_version` | Snapshot the workspace into a version (consumes the workspace; returns `newWorkspacePath`) |
+| `publish_version` | Publish a version live (requires `confirm=true`) |
