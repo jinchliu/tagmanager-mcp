@@ -7,7 +7,6 @@ throttling, retry with backoff, and actionable error messages.
 """
 
 import contextlib
-import importlib.metadata
 import json
 import random
 import subprocess
@@ -23,6 +22,8 @@ import httplib2
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import set_user_agent
+
+from tagmanager_mcp import package_version
 
 READ_ONLY_SCOPE = 'https://www.googleapis.com/auth/tagmanager.readonly'
 EDIT_SCOPE = 'https://www.googleapis.com/auth/tagmanager.edit.containers'
@@ -91,13 +92,6 @@ def prevent_stdio_inheritance() -> Iterator[None]:
         yield
 
 
-def _package_version() -> str:
-    try:
-        return importlib.metadata.version('tagmanager-mcp')
-    except importlib.metadata.PackageNotFoundError:
-        return 'unknown'
-
-
 def _get_credentials() -> Any:
     """Loads ADC credentials once; thread-safe."""
     global _credentials
@@ -124,7 +118,7 @@ def create_tagmanager_client() -> Any:
     """Builds a Tag Manager v2 discovery client with shared credentials."""
     http = set_user_agent(
         httplib2.Http(timeout=_HTTP_TIMEOUT_SECONDS),
-        f'tagmanager-mcp/{_package_version()}',
+        f'tagmanager-mcp/{package_version()}',
     )
     authorized_http = google_auth_httplib2.AuthorizedHttp(
         _get_credentials(), http=http

@@ -62,13 +62,13 @@ class ToolRegistrationTest(unittest.TestCase):
                     tool.annotations, msg=f'{tool.name} lacks annotations'
                 )
                 if tool.name in _READ_ONLY_TOOLS:
-                    self.assertTrue(tool.annotations.readOnlyHint)
+                    self.assertTrue(tool.annotations.read_only_hint)
                 elif tool.name in _WRITE_TOOLS:
-                    self.assertFalse(tool.annotations.readOnlyHint)
-                    self.assertFalse(tool.annotations.destructiveHint)
+                    self.assertFalse(tool.annotations.read_only_hint)
+                    self.assertFalse(tool.annotations.destructive_hint)
                 else:
-                    self.assertFalse(tool.annotations.readOnlyHint)
-                    self.assertTrue(tool.annotations.destructiveHint)
+                    self.assertFalse(tool.annotations.read_only_hint)
+                    self.assertTrue(tool.annotations.destructive_hint)
 
     def test_confirm_tools_take_confirm_flag(self) -> None:
         tools = asyncio.run(server.mcp.list_tools())
@@ -76,7 +76,7 @@ class ToolRegistrationTest(unittest.TestCase):
             if tool.name in _CONFIRM_TOOLS:
                 with self.subTest(tool=tool.name):
                     self.assertIn(
-                        'confirm', tool.inputSchema.get('properties', {})
+                        'confirm', tool.input_schema.get('properties', {})
                     )
 
 

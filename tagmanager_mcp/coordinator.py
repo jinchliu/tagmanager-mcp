@@ -1,5 +1,7 @@
-"""The single FastMCP instance every tool module registers against."""
+"""The single MCPServer instance every tool module registers against."""
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-mcp = FastMCP('Google Tag Manager MCP Server')
+from tagmanager_mcp import package_version
+
+mcp = MCPServer('Google Tag Manager MCP Server', version=package_version())

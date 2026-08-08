@@ -1,11 +1,12 @@
 # tagmanager-mcp
 
-Google Tag Manager MCP server in Python (stdio, FastMCP from the official
-`mcp` SDK). v0.1 (read), v0.2 (write) and v0.3 (versions and publishing) are
+Google Tag Manager MCP server in Python (stdio, `MCPServer` from the official
+`mcp` SDK v2). v0.1 (read), v0.2 (write) and v0.3 (versions and publishing) are
 shipped and verified against a real container — the v0.3 end-to-end smoke test
-ran 2026-07-09. 24 tools (13 read + 11 write), 71 offline tests. Published on
-PyPI as `tagmanager-mcp`; pushing a `v*` tag releases via GitHub Actions
-Trusted Publishing (see "Releasing").
+ran 2026-07-09; v0.3.2 moved the SDK from mcp 1.x/FastMCP to mcp 2.x/MCPServer
+with no change to the tools themselves. 24 tools (13 read + 11 write), 71
+offline tests. Published on PyPI as `tagmanager-mcp`; pushing a `v*` tag
+releases via GitHub Actions Trusted Publishing (see "Releasing").
 
 ## Commands
 
@@ -27,7 +28,8 @@ Restart Claude Code after code changes; tools load only at startup.
 
 ```
 tagmanager_mcp/
-├── coordinator.py   # mcp = FastMCP(...) — the one instance everything registers on
+├── __init__.py      # package_version() — feeds serverInfo and the API user agent
+├── coordinator.py   # mcp = MCPServer(...) — the one instance everything registers on
 ├── server.py        # importing the tools modules triggers @mcp.tool() → mcp.run() (stdio)
 └── tools/
     ├── client.py    # ADC credential singleton (lazy, threading.Lock); fresh discovery
@@ -57,16 +59,19 @@ Rules for changing code:
 
 - New tools are `async def` wrapping the blocking call in
   `asyncio.to_thread(_sync)`. The docstring *is* the tool description; document
-  accepted argument formats under `Args:`.
+  accepted argument formats under `Args:`. (mcp 2.x also runs plain `def`
+  handlers on an AnyIO worker thread, so the wrapper is no longer strictly
+  required — but keep it: it makes the blocking boundary explicit and the
+  `_*_sync()` split is what lets bash call the impl without an event loop.)
 - Every API call goes through `client.execute()`; a direct `request.execute()`
   loses retries and error translation.
 - `list_*` returns skeletons (`slim_*` in utils), `get_*` returns full detail.
   One GA4 event tag is hundreds of lines of JSON.
 - Every list method goes through `paginate()`. The API omits array keys
   entirely when a list is empty, so read response fields with `.get()`.
-- Annotations on every tool: reads `readOnlyHint=True`, create/update
-  `destructiveHint=False`, delete `destructiveHint=True`. `create_version` and
-  `publish_version` are also `destructiveHint=True` — one consumes the
+- Annotations on every tool: reads `read_only_hint=True`, create/update
+  `destructive_hint=False`, delete `destructive_hint=True`. `create_version` and
+  `publish_version` are also `destructive_hint=True` — one consumes the
   workspace, the other changes the live site.
 - Three rules for writes: (1) write calls use `execute(request, mutating=True)`
   — rate limits are retried, 5xx is not, because the API has no idempotency key
@@ -85,11 +90,29 @@ Rules for changing code:
 
 ## Hard constraints (each has a real incident behind it; do not relax)
 
-- `mcp>=1.28,<2`: the v2.0 beta changed the API completely (MCPServer replaces
-  FastMCP) and upstream asks for a `<2` pin. Official `mcp` package, not the
+- `mcp>=2,<3`: v2 moved the server class to `mcp.server.mcpserver.MCPServer` and
+  **deleted `mcp.server.fastmcp` outright — there is no compat shim**, so 1.x and
+  2.x cannot coexist and the upgrade is atomic. Official `mcp` package, not the
   third-party `fastmcp` 2.x.
-- `cryptography<49`: 49+ ships no Intel-macOS wheels, and a source build fails
-  on this machine (x86_64 Mac, no Rust toolchain).
+- mcp 2.x behaviour measured during the 0.3.2 migration (2026-08-08), all of it
+  load-bearing for how this repo is written: `@mcp.tool()` keeps its v1 signature
+  and returns the *original* function, so offline tests can call `tags.delete_tag`
+  directly; `ToolAnnotations(readOnlyHint=True)` still constructs (camelCase
+  aliases are accepted, no warning) but **attribute reads only work in snake_case**
+  — `tool.annotations.readOnlyHint` and `tool.inputSchema` no longer exist, which
+  is the one thing that broke the tests; the **wire format is still camelCase**, so
+  MCP clients see no change at all; `mcp.run()` still defaults to stdio;
+  `mcp.types` is a permanent alias of the split-out `mcp_types` package, so the
+  imports stay as they are; a tool raising `RuntimeError`/`ValueError` still comes
+  back as `isError=True` with the message, not a JSON-RPC error.
+- `cryptography<49`: mcp 2.x makes cryptography a **hard** dependency (via
+  `pyjwt[crypto]`), and 49+ ships no Intel-macOS wheels, so a source build fails
+  on this machine (x86_64 Mac, no Rust toolchain). Measured 2026-08-08:
+  installing mcp 2.0.0 without this ceiling pulls 49+ and dies in
+  maturin/openssl-sys. Do not drop the pin to "clean up dependencies".
+- The v2 stdio transport shuts down on stdin EOF and cancels in-flight requests.
+  A hand-rolled E2E smoke must therefore hold stdin open until every response
+  has been read, or a slow `tools/call` comes back as `-32000 Connection closed`.
 - GTM quota: 0.25 QPS (25 requests per 100s window) + 10,000/day per GCP
   project; per-user overrides do nothing. Rate limiting returns 429 in practice
   (the official docs only mention 403 — `execute()` retries both). Never design
@@ -202,3 +225,12 @@ git push origin v0.3.0     # runs release.yml: tests → build → publish
   pre-publish checks; `publish_version` requires `confirm=True`. Version
   management (`update` / `delete` / `undelete` / `set_latest_version`) is not
   implemented — the existing scopes already cover it if wanted.
+- **v0.3.2, mcp SDK 1.28 → 2.0 (2026-08-08)**: `coordinator.py` switched to
+  `MCPServer`, the six `ToolAnnotations` constants moved to snake_case, and
+  `tests/server_test.py` stopped reading camelCase attributes. `tools/*.py` logic
+  was untouched. `package_version()` moved out of `client.py` into `__init__.py`
+  so `MCPServer(version=...)` can report it: v1 shipped the *SDK* version
+  (`1.28.1`) in `serverInfo.version`, and v2 reports `''` unless it is passed.
+  Verified: 71 offline tests, `black --check`, and a stdio E2E showing 24 tools,
+  13 `readOnlyHint` / 5 `destructiveHint` on the wire, working `confirm` gate,
+  clean stdout.

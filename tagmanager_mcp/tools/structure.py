@@ -8,7 +8,7 @@ from mcp.types import ToolAnnotations
 from tagmanager_mcp.coordinator import mcp
 from tagmanager_mcp.tools import client, utils
 
-_READ_ONLY = ToolAnnotations(readOnlyHint=True)
+_READ_ONLY = ToolAnnotations(read_only_hint=True)
 
 
 @mcp.tool(annotations=_READ_ONLY)

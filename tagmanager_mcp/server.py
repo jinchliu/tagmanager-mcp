@@ -1,7 +1,7 @@
 """Server entry point.
 
 Importing the tool modules below registers their @mcp.tool() functions
-on the shared FastMCP instance; keep those imports even though nothing
+on the shared MCPServer instance; keep those imports even though nothing
 references them directly.
 """
 

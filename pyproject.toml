@@ -1,6 +1,6 @@
 [project]
 name = "tagmanager-mcp"
-version = "0.3.1"
+version = "0.3.2"
 description = "Google Tag Manager MCP Server"
 readme = "README.md"
 license = "Apache-2.0"
@@ -20,12 +20,13 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "mcp>=1.28,<2",
+    "mcp>=2,<3",
     "google-api-python-client>=2.100",
     "google-auth~=2.40",
     "google-auth-httplib2>=0.2.0",
-    # cryptography 49+ ships no Intel-macOS wheels; keep it installable
-    # on x86_64 Macs without a Rust toolchain.
+    # mcp 2.x makes cryptography a hard dependency via pyjwt[crypto], and
+    # cryptography 49+ ships no Intel-macOS wheels; keep it installable on
+    # x86_64 Macs without a Rust toolchain.
     "cryptography<49",
 ]
 
@@ -39,7 +40,7 @@ tagmanager-mcp = "tagmanager_mcp.server:run_server"
 
 [project.optional-dependencies]
 dev = [
-    "mcp[cli]>=1.28,<2",
+    "mcp[cli]>=2,<3",
     "black",
     "nox",
     # Local verification only; CI installs its own copies for the release.

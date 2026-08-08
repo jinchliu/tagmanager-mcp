@@ -52,7 +52,7 @@ The write safety model:
 
 ## Prerequisites
 
-- Python >= 3.10
+- Python 3.10+
 - [pipx](https://pipx.pypa.io/stable/)
 - The [gcloud CLI](https://docs.cloud.google.com/sdk/gcloud)
 - A Google account with access to your GTM containers
